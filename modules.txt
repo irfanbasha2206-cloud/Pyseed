@@ -1,0 +1,5 @@
+streamlit
+openai
+rank-bm25
+python-dotenv
+bcrypt

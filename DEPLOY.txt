@@ -1,0 +1,52 @@
+Pyseed — deploy to Streamlit Community Cloud (GitHub)
+========================================================
+
+This machine did not have Git in PATH when deployment was prepared. Install Git for Windows
+if needed: https://git-scm.com/download/win
+
+1) Create a new empty repository on GitHub (no README/license if you will push an existing folder).
+
+2) In PowerShell, from this project folder:
+
+   cd "G:\My Drive\Besant Tech\Pyseed"
+   git init
+   git branch -M main
+   git add app.py seed_auth.py rag.py ui.py requirements.txt modules.txt .gitignore .env.example DEPLOY.txt content assets .streamlit
+   git commit -m "Initial Pyseed Streamlit app"
+   git remote add origin https://github.com/YOUR_USER/YOUR_REPO.git
+   git push -u origin main
+
+   Replace YOUR_USER/YOUR_REPO with your GitHub username and repository name.
+
+   Do NOT commit .streamlit/secrets.toml or .env (they are in .gitignore).
+
+3) Open https://streamlit.io/cloud and sign in with GitHub.
+
+4) Click "Create app" / "New app":
+   - Repository: your new repo
+   - Branch: main
+   - Main file path: app.py
+
+5) App settings (gear icon) → Secrets. Paste TOML into the one big text box (there is no separate
+   "auth_users.demo" screen — that name is just a section header in some examples).
+
+   Easiest form (login: demo / pyseed-demo):
+
+   OPENAI_API_KEY = "sk-your-key-here"
+
+   PYSEED_DEMO_PASSWORD_HASH = "$2b$12$R52UkcUSenMG5B8Vq9aYFe8m15tbaLFC2Zy0jp5TE2N8uzlOvkRiO"
+   PYSEED_DEMO_NAME = "Demo Learner"
+
+   Password for that hash is: pyseed-demo
+   Generate a new hash locally with:
+   python -c "import bcrypt; print(bcrypt.hashpw(b'YOUR_PASSWORD', bcrypt.gensalt()).decode())"
+
+6) If the build fails, open App settings → Python version and try 3.11 or 3.12, then reboot the app.
+
+Optional: include course notebooks in the same repo with:
+
+   git add "*.ipynb"
+
+before git commit (large uploads may be slow from Google Drive).
+
+Official docs: https://docs.streamlit.io/deploy/streamlit-community-cloud

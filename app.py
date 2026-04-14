@@ -46,7 +46,7 @@ def _dashboard() -> None:
     st.markdown(
         mode_card_html(
             "AI mode",
-            "Ask Python questions and get answers grounded in your lesson notebooks — no API key needed.",
+            "Quickly ask Python questions from your lesson notebooks.",
             "✨",
         ),
         unsafe_allow_html=True,
@@ -54,7 +54,7 @@ def _dashboard() -> None:
     st.markdown(
         mode_card_html(
             "Static mode",
-            "Browse all 22 notebooks in order — great for reading lessons step by step.",
+            "Great for reading lessons step by step.",
             "📚",
         ),
         unsafe_allow_html=True,
@@ -92,10 +92,6 @@ def _ai_view() -> None:
         st.markdown(
             '<span class="free-mode-badge">🆓 FREE MODE — Notebook Search</span>',
             unsafe_allow_html=True,
-        )
-        st.caption(
-            "Answering from your lesson notebooks directly — no API key required. "
-            "Ask anything about Python covered in the lessons!"
         )
 
     if "messages" not in st.session_state:

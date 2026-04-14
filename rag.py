@@ -176,8 +176,10 @@ def load_all_chunks() -> tuple[list[Chunk], BM25Okapi | None]:
 
 def _title_boost(query_tokens: set[str], source: str) -> float:
     """
-    Give a score multiplier to chunks whose notebook title words overlap with the query.
-    e.g. query='variables' → notebook '1_variables_and_datatypes.md' gets a big boost.
+    Give a score multiplier to chunks whose notebook title overlaps with the query.
+    Uses *query coverage* (how much of the query is in the title) so a single-word
+    query like 'variables' that fully matches the title 'variables_and_datatypes'
+    gets the maximum boost, while off-topic notebooks get no boost.
     """
     stem = Path(source).stem
     stem_clean = re.sub(r"^\d+[_\-]?", "", stem)
@@ -187,12 +189,13 @@ def _title_boost(query_tokens: set[str], source: str) -> float:
     overlap = query_tokens & title_tokens
     if not overlap:
         return 1.0
-    ratio = len(overlap) / len(title_tokens)
-    if ratio >= 0.5:
-        return 4.0
-    if ratio > 0:
-        return 2.0
-    return 1.0
+    # fraction of QUERY words found in the notebook title
+    query_coverage = len(overlap) / len(query_tokens)
+    if query_coverage >= 1.0:
+        return 12.0   # every query word is in the title → overwhelming boost
+    if query_coverage >= 0.5:
+        return 6.0
+    return 2.5
 
 
 def retrieve_context(query: str, k: int = 5) -> str:
@@ -249,6 +252,14 @@ def _bm25_only_answer(query: str) -> str:
         )
 
     top_score = results[0][1]
+
+    # Very low score = the query words don't appear anywhere → likely misspelling
+    if top_score < 0.15:
+        return (
+            "❗ **Check your word and enter the correct spelling.**\n\n"
+            "I could not find any matching lesson content. "
+            "Try a Python keyword like `variables`, `loops`, `functions`, or `OOP`."
+        )
 
     if top_score < 0.5:
         return (

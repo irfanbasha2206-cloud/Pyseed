@@ -21,13 +21,13 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PYSEED_DEV_LOGIN=1 streamlit run app.py"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PYSEED_DEV_LOGIN=1 PYSEED_OPEN_ACCESS=1 streamlit run app.py"
+waitForPort = 5000
 
 [[ports]]
 localPort = 5000

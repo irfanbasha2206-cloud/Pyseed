@@ -1,4 +1,4 @@
-"""Minimal bcrypt auth using Streamlit secrets (no passwords in repo)."""
+"""Auth module: bcrypt users from Secrets, open-access fallback, or dev mode."""
 
 from __future__ import annotations
 
@@ -33,7 +33,6 @@ def _get_auth_users() -> dict[str, Any]:
 
     users = _normalize_user_table(raw)
 
-    # Easier for Streamlit Cloud: plain keys (no [auth_users.demo] section).
     if not users and secrets is not None:
         h = secrets.get("PYSEED_DEMO_PASSWORD_HASH") or secrets.get("DEMO_PASSWORD_HASH")
         if h:
@@ -46,13 +45,28 @@ def _get_auth_users() -> dict[str, Any]:
 def _load_dotenv_if_present() -> None:
     try:
         from dotenv import load_dotenv
-
         load_dotenv()
     except ImportError:
         pass
 
 
+def _is_open_access() -> bool:
+    """Return True when the app should accept any non-empty username and password."""
+    if os.environ.get("PYSEED_OPEN_ACCESS", "").strip() == "1":
+        return True
+    try:
+        v = st.secrets.get("PYSEED_OPEN_ACCESS")
+        if str(v).strip() in ("1", "true", "yes"):
+            return True
+    except (FileNotFoundError, RuntimeError, AttributeError, KeyError, TypeError):
+        pass
+    return False
+
+
 def verify_user(username: str, password: str) -> tuple[bool, str | None]:
+    if _is_open_access():
+        return True, username.strip() or "Learner"
+
     users = _get_auth_users()
     if username not in users:
         return False, None
@@ -83,14 +97,28 @@ def ensure_session_keys() -> None:
 
 
 def render_login() -> bool:
-    """Show login form. Returns True if user is authenticated."""
+    """Show login form. Returns True if user is now authenticated."""
     _load_dotenv_if_present()
     ensure_session_keys()
 
     if st.session_state.authenticated:
         return True
 
+    if _is_open_access():
+        u = st.text_input("Username", key="login_u", placeholder="Enter any username")
+        p = st.text_input("Password", type="password", key="login_p", placeholder="Enter any password")
+        if st.button("Sign in", type="primary", use_container_width=True):
+            if u.strip():
+                st.session_state.authenticated = True
+                st.session_state.display_name = u.strip()
+                st.session_state.username = u.strip().lower()
+                st.rerun()
+            else:
+                st.error("Please enter a username.")
+        return False
+
     users = _get_auth_users()
+
     if not users:
         if os.environ.get("PYSEED_DEV_LOGIN") == "1":
             st.warning(
@@ -108,45 +136,26 @@ def render_login() -> bool:
                 else:
                     st.error("Invalid username or password.")
             return False
-        st.error("**Authentication is not configured.** Add login keys to Streamlit **Secrets** (see below).")
+
+        st.error("**Authentication is not configured.** Add login keys to Streamlit **Secrets**.")
         st.markdown(
             """
-**Where do I type this?**  
-There is no menu item named `auth_users.demo`. On Streamlit Cloud you get **one text box** for secrets.  
-You **copy and paste lines** into that box — like editing a small config file.
-
 **Streamlit Community Cloud**
 
-1. **Manage app** (bottom right) → **Settings** → **Secrets**.  
-2. Paste **Option A** (simplest) or **Option B** from the boxes below.  
-3. **Save**, then **Reboot** the app.
+1. **Manage app** → **Settings** → **Secrets**.
+2. Paste one of the options below → **Save** → **Reboot**.
 
-**Sign in after that:** username **`demo`**, password **`pyseed-demo`** (for the sample hash below).
-
-**Local run:** save the same text as `.streamlit/secrets.toml` next to `config.toml`.
-
-**Temporary local demo only:** set `PYSEED_DEV_LOGIN=1` and use **demo** / **demo** (not for public sites).
+**Option A — open access (any username/password works)**
 """
         )
-        st.markdown("**Option A — easiest (no `[brackets]`)**")
+        st.code('PYSEED_OPEN_ACCESS = "1"\nOPENAI_API_KEY = ""', language="toml")
+        st.markdown("**Option B — fixed demo account (username: `demo`, password: `pyseed-demo`)**")
         st.code(
             'OPENAI_API_KEY = ""\n\n'
             'PYSEED_DEMO_PASSWORD_HASH = "$2b$12$R52UkcUSenMG5B8Vq9aYFe8m15tbaLFC2Zy0jp5TE2N8uzlOvkRiO"\n'
             'PYSEED_DEMO_NAME = "Demo Learner"\n',
             language="toml",
         )
-        with st.expander("Option B — grouped user (same thing, different TOML style)", expanded=False):
-            st.caption(
-                "`[auth_users.demo]` is only a **section header** in the secrets file, not something you search for in GitHub."
-            )
-            st.code(
-                'OPENAI_API_KEY = ""\n\n'
-                "[auth_users.demo]\n"
-                'name = "Demo Learner"\n'
-                'password_hash = "$2b$12$R52UkcUSenMG5B8Vq9aYFe8m15tbaLFC2Zy0jp5TE2N8uzlOvkRiO"\n',
-                language="toml",
-            )
-        st.caption("That hash matches password **pyseed-demo**. Change it before sharing widely.")
         return False
 
     u = st.text_input("Username", key="login_u")

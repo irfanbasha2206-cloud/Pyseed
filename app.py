@@ -17,7 +17,7 @@ import streamlit as st
 
 from seed_auth import ensure_session_keys, logout, render_login
 from rag import (
-    chat_answer,
+    chat_answer_stream,
     get_openai_key,
     load_topics_manifest,
     openai_key_fingerprint,
@@ -120,9 +120,7 @@ def _ai_view() -> None:
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.chat_message("assistant"):
-            with st.spinner("Grounding answer in your lessons…"):
-                reply = chat_answer(prompt, history)
-            st.markdown(reply)
+            reply = st.write_stream(chat_answer_stream(prompt, history))
         st.session_state.messages.append({"role": "assistant", "content": reply})
 
 

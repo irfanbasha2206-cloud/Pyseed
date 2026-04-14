@@ -1,4 +1,4 @@
-"""Load lesson markdown, chunk, BM25 retrieve, and call OpenAI with grounded context."""
+"""Load lesson markdown, chunk, BM25 retrieve, and optionally call OpenAI."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Generator
 
 import streamlit as st
-from openai import APIConnectionError, APIStatusError, AuthenticationError, OpenAI, RateLimitError
 from rank_bm25 import BM25Okapi
 
 ROOT = Path(__file__).resolve().parent
@@ -129,6 +128,79 @@ def retrieve_context(query: str, k: int = 6) -> str:
     return "\n\n".join(excerpts)
 
 
+def _retrieve_top_chunks(query: str, k: int = 4) -> list[tuple[Chunk, float]]:
+    chunks, bm25 = load_all_chunks()
+    if not chunks or bm25 is None:
+        return []
+    q = tokenize(query)
+    if not q:
+        return []
+    scores = bm25.get_scores(q)
+    ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
+    return [(chunks[i], float(scores[i])) for i in ranked]
+
+
+def _source_label(source: str) -> str:
+    stem = Path(source).stem
+    if re.match(r"^(\d+)", stem):
+        m = re.match(r"^(\d+)[_\-]?(.*)", stem)
+        if m:
+            num = m.group(1)
+            rest = re.sub(r"[_-]+", " ", m.group(2)).strip().title()
+            return f"Notebook {num}: {rest}"
+    if "introduction" in stem.lower():
+        return "Introduction to Python Programming"
+    return re.sub(r"[_-]+", " ", stem).strip().title()
+
+
+def _bm25_only_answer(query: str) -> str:
+    """Answer purely from notebook content using BM25. No external API needed."""
+    results = _retrieve_top_chunks(query, k=3)
+    if not results:
+        return (
+            "Sorry, I am beginner level AI and I could not find anything in the notebooks. "
+            "Please try browsing the **Static mode** to read the lessons directly."
+        )
+
+    top_score = results[0][1]
+
+    if top_score < 0.5:
+        return (
+            "Sorry, I am beginner level AI — I could not find a good answer to that question "
+            "in the lesson notebooks. Try rephrasing with Python keywords, or browse the "
+            "**Static mode** to read the lessons directly."
+        )
+
+    parts: list[str] = []
+    seen_sources: set[str] = set()
+
+    for chunk, score in results:
+        if score < 0.3:
+            break
+        label = _source_label(chunk.source)
+        text = chunk.text.strip()
+        if not text:
+            continue
+        if label not in seen_sources:
+            seen_sources.add(label)
+            parts.append(f"**From: {label}**\n\n{text}")
+        else:
+            parts.append(text)
+
+    if not parts:
+        return (
+            "Sorry, I am beginner level AI — I could not find a relevant answer in the notebooks. "
+            "Try browsing **Static mode** for the full lessons."
+        )
+
+    answer = "\n\n---\n\n".join(parts)
+    answer += (
+        "\n\n---\n*This answer is taken directly from your lesson notebooks. "
+        "For a deeper explanation, open the topic in **Static mode**.*"
+    )
+    return answer
+
+
 def _normalize_openai_key(raw: str) -> str:
     s = raw.strip().replace("\n", "").replace("\r", "").lstrip("\ufeff")
     if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
@@ -158,7 +230,8 @@ def _optional_secret(*names: str) -> str | None:
 
 
 @st.cache_resource(show_spinner=False)
-def _get_openai_client_cached(api_key: str, org: str | None, project: str | None) -> OpenAI:
+def _get_openai_client_cached(api_key: str, org: str | None, project: str | None):
+    from openai import OpenAI
     kwargs: dict[str, str] = {"api_key": api_key}
     if org:
         kwargs["organization"] = org
@@ -167,7 +240,7 @@ def _get_openai_client_cached(api_key: str, org: str | None, project: str | None
     return OpenAI(**kwargs)
 
 
-def _openai_client() -> OpenAI:
+def _openai_client():
     api_key = get_openai_key()
     if not api_key:
         raise RuntimeError("missing API key")
@@ -206,8 +279,9 @@ def openai_key_fingerprint() -> str | None:
 
 
 def ping_openai_api() -> tuple[bool, str]:
+    from openai import APIConnectionError, APIStatusError, AuthenticationError, RateLimitError
     if not get_openai_key():
-        return False, "No API key loaded. Add OPENAI_API_KEY to Streamlit Secrets (or .env locally)."
+        return False, "No API key loaded."
     try:
         client = _openai_client()
         client.chat.completions.create(
@@ -217,68 +291,36 @@ def ping_openai_api() -> tuple[bool, str]:
         )
         return True, "OpenAI accepted the key — billing and model access are working."
     except AuthenticationError:
-        return False, (
-            "401 invalid API key — OpenAI rejected the key. Create a new secret key at "
-            "platform.openai.com/api-keys, confirm billing is active, paste into Secrets, Save, Reboot."
-        )
+        return False, "401 invalid API key — check billing at platform.openai.com."
     except APIStatusError as e:
         code = getattr(e, "status_code", None)
-        if code == 401:
-            return False, (
-                "401 — Check the key, billing, and (if applicable) OPENAI_ORGANIZATION / OPENAI_PROJECT in Secrets."
-            )
         if code == 429:
-            return (
-                True,
-                "Your API key is valid. OpenAI returned 429 (rate limit): wait 2–5 minutes, then try again.",
-            )
-        return False, f"OpenAI HTTP {code}. Check Manage app → Logs for details."
+            return True, "Key is valid. OpenAI returned 429 (rate limit) — wait a few minutes."
+        return False, f"OpenAI HTTP {code}."
     except RateLimitError:
-        return (
-            True,
-            "Your API key is valid. Rate limit (429): wait a few minutes before more API calls.",
-        )
+        return True, "Key valid. Rate limit — wait a few minutes."
     except APIConnectionError:
         return False, "Network error — could not reach OpenAI."
     except Exception:
         return False, "Request failed — see Manage app → Logs."
 
 
-def _chat_completions_with_retry(client: OpenAI, **kwargs: Any):
-    delays = (2.0, 5.0, 12.0)
-    last_exc: BaseException | None = None
-    for attempt in range(len(delays) + 1):
-        try:
-            return client.chat.completions.create(**kwargs)
-        except RateLimitError as e:
-            last_exc = e
-        except APIStatusError as e:
-            if getattr(e, "status_code", None) != 429:
-                raise
-            last_exc = e
-        if attempt < len(delays):
-            time.sleep(delays[attempt])
-            continue
-        raise last_exc  # type: ignore[misc]
-
-
 def chat_answer_stream(
     user_message: str,
     history: list[dict[str, str]],
 ) -> Generator[str, None, None]:
+    from openai import APIConnectionError, APIStatusError, AuthenticationError, RateLimitError
+
     api_key = get_openai_key()
+
     if not api_key:
-        yield (
-            "**OpenAI is not configured.** The tutor needs a real API key.\n\n"
-            "Add `OPENAI_API_KEY = \"sk-...\"` to `.streamlit/secrets.toml` or Streamlit Cloud Secrets, then reboot."
-        )
+        yield _bm25_only_answer(user_message)
         return
 
     if not api_key.startswith("sk-"):
         yield (
-            "**OPENAI_API_KEY does not look like an OpenAI API key.** "
-            "It should start with `sk-` or `sk-proj-` from "
-            "[API keys](https://platform.openai.com/api-keys)."
+            "**OPENAI_API_KEY does not look like a valid key.** "
+            "It should start with `sk-` or `sk-proj-`."
         )
         return
 
@@ -286,16 +328,17 @@ def chat_answer_stream(
     system = (
         "You are **Pyseed**, a friendly beginner Python tutor. "
         "Answer using the lesson excerpts below as your primary source. "
-        "If the excerpts do not contain enough information, say so clearly and suggest "
-        "which topic the learner might open in Static mode. "
+        "If the excerpts do not contain enough information to answer the question, "
+        "respond with exactly: 'Sorry I am beginner level AI' and suggest the learner "
+        "browse the relevant topic in Static mode. "
         "Keep answers concise and use simple examples when helpful.\n\n"
-        f"### Lesson excerpts\n{context or '(No excerpts retrieved — corpus may be empty.)'}"
+        f"### Lesson excerpts\n{context or '(No excerpts retrieved.)'}"
     )
 
     try:
         client = _openai_client()
     except RuntimeError:
-        yield "**OpenAI is not configured.** Add `OPENAI_API_KEY` to Secrets and reboot the app."
+        yield _bm25_only_answer(user_message)
         return
 
     messages: list[dict[str, str]] = [{"role": "system", "content": system}]
@@ -304,12 +347,12 @@ def chat_answer_stream(
     messages.append({"role": "user", "content": user_message})
 
     auth_help = (
-        "**OpenAI rejected the request (401 — authentication failed).**\n\n"
-        "Common fixes:\n"
-        "1. Use an **API key** (not your ChatGPT password) from [platform.openai.com/api-keys](https://platform.openai.com/api-keys).\n"
-        "2. Ensure **billing** is active for that API key's organisation.\n"
-        "3. In Secrets, use straight ASCII quotes: `OPENAI_API_KEY = \"sk-proj-...\"`  → **Save** → **Reboot**.\n"
-        "4. For project-scoped keys, also add `OPENAI_PROJECT = \"proj_...\"` in Secrets."
+        "**OpenAI rejected the request (401).**\n\n"
+        "Fixes:\n"
+        "1. Use an API key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys).\n"
+        "2. Ensure billing is active for that key's organisation.\n"
+        "3. In Secrets: `OPENAI_API_KEY = \"sk-proj-...\"` → **Save** → **Reboot**.\n\n"
+        "*Tip: Remove the key entirely to use the free notebook-based mode.*"
     )
 
     try:
@@ -331,24 +374,18 @@ def chat_answer_stream(
         if code == 401:
             yield auth_help
         elif code == 429:
-            yield (
-                "**OpenAI rate limit (429)** — wait 5–15 minutes and try again. "
-                "Check [limits](https://platform.openai.com/settings/organization/limits)."
-            )
+            yield "**OpenAI rate limit (429)** — wait 5–15 minutes and try again."
         else:
-            yield f"**OpenAI API error** (HTTP {code}). Check Manage app → Logs."
+            yield f"**OpenAI API error** (HTTP {code})."
     except RateLimitError:
         yield "**OpenAI rate limit (429)** — wait several minutes and retry."
     except APIConnectionError:
-        yield "**Could not reach OpenAI.** Check network or try again in a few minutes."
+        yield "**Could not reach OpenAI.** Falling back to notebook search...\n\n" + _bm25_only_answer(user_message)
     except Exception as exc:
         yield f"**Unexpected error:** {exc}"
 
 
-def chat_answer(
-    user_message: str,
-    history: list[dict[str, str]],
-) -> str:
+def chat_answer(user_message: str, history: list[dict[str, str]]) -> str:
     return "".join(chat_answer_stream(user_message, history))
 
 

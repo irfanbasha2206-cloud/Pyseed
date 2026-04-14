@@ -7,7 +7,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Ensure sibling modules resolve on Streamlit Cloud (Linux) and odd cwd cases.
 _APP_DIR = Path(__file__).resolve().parent
 _root = str(_APP_DIR)
 if _root not in sys.path:
@@ -24,7 +23,15 @@ from rag import (
     ping_openai_api,
     read_topic_file,
 )
-from ui import LOGO_PATH, inject_css, mode_card_html, render_app_header, render_landing_brand
+from ui import (
+    LOGO_PATH,
+    inject_css,
+    mode_card_html,
+    notebook_card_html,
+    get_notebook_icon,
+    render_app_header,
+    render_landing_brand,
+)
 
 
 def _page_icon() -> str:
@@ -39,7 +46,7 @@ def _dashboard() -> None:
     st.markdown(
         mode_card_html(
             "AI mode",
-            "Ask questions; answers are grounded in the markdown lessons in `content/`.",
+            "Ask Python questions and get answers grounded in your lesson notebooks — no API key needed.",
             "✨",
         ),
         unsafe_allow_html=True,
@@ -47,7 +54,7 @@ def _dashboard() -> None:
     st.markdown(
         mode_card_html(
             "Static mode",
-            "Browse topics as expandable sections — great for reading in order.",
+            "Browse all 22 notebooks in order — great for reading lessons step by step.",
             "📚",
         ),
         unsafe_allow_html=True,
@@ -64,47 +71,43 @@ def _dashboard() -> None:
 
 
 def _ai_view() -> None:
-    st.subheader("ASK Python related questions")
-    st.caption(
-        "The tutor uses **your** lesson files under `content/` as context (simple BM25 search + OpenAI). "
-        "If something is not in the lessons, it should say so."
-    )
-    if not get_openai_key():
-        st.warning(
-            "**AI mode needs a real OpenAI key.** "
-            "An empty `OPENAI_API_KEY = \"\"` in Secrets does not work.\n\n"
-            "**Streamlit Cloud:** *Manage app* → *Settings* → *Secrets* → add one line like "
-            "`OPENAI_API_KEY = \"sk-proj-...\"` (your actual key) → *Save* → *Reboot*.\n\n"
-            "**This computer:** put the same in `.streamlit/secrets.toml`, or in a `.env` file as "
-            "`OPENAI_API_KEY=sk-...`, then restart Streamlit.\n\n"
-            "Keys come from [OpenAI API keys](https://platform.openai.com/api-keys) (account required)."
-        )
-    else:
+    has_key = bool(get_openai_key())
+
+    st.subheader("💬 Ask Python Questions")
+
+    if has_key:
+        st.caption("Powered by OpenAI + your lesson notebooks.")
         with st.expander("OpenAI key — test connection", expanded=False):
             fp = openai_key_fingerprint()
             if fp:
-                st.caption(f"Loaded key preview (not full key): `{fp}`")
+                st.caption(f"Loaded key preview: `{fp}`")
             if st.button("Test OpenAI now", key="ping_openai"):
                 with st.spinner("Calling OpenAI…"):
                     ok, msg = ping_openai_api()
                 if ok:
-                    if "429" in msg or "rate limit" in msg.lower():
-                        st.info(msg)
-                    else:
-                        st.success(msg)
+                    st.success(msg) if "429" not in msg else st.info(msg)
                 else:
                     st.error(msg)
-            st.markdown(
-                "- **401** = bad key or billing — fix at [API keys](https://platform.openai.com/api-keys) "
-                "and [Billing](https://platform.openai.com/settings/organization/billing/overview), "
-                "then update Secrets and **Reboot**.\n"
-                "- **429** = your key is fine; OpenAI is **throttling** (too many requests). "
-                "Wait a few minutes, click **Test** less often, or review "
-                "[Limits](https://platform.openai.com/settings/organization/limits)."
-            )
+    else:
+        st.markdown(
+            '<span class="free-mode-badge">🆓 FREE MODE — Notebook Search</span>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Answering from your lesson notebooks directly — no API key required. "
+            "Ask anything about Python covered in the lessons!"
+        )
 
     if "messages" not in st.session_state:
         st.session_state.messages = []
+
+    if not st.session_state.messages:
+        with st.chat_message("assistant"):
+            st.markdown(
+                "👋 Hi! I'm **Pyseed**, your beginner Python tutor.\n\n"
+                "Ask me anything about Python — variables, loops, functions, OOP and more. "
+                "I'll answer from your lesson notebooks!"
+            )
 
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
@@ -121,23 +124,37 @@ def _ai_view() -> None:
             st.markdown(prompt)
         with st.chat_message("assistant"):
             reply = st.write_stream(chat_answer_stream(prompt, history))
-        st.session_state.messages.append({"role": "assistant", "content": reply})
+        st.session_state.messages.append({"role": "assistant", "content": str(reply)})
 
 
 def _static_view() -> None:
-    st.subheader("Static topics")
-    st.caption(
-        "Open a topic to read lessons from `content/` and converted notebooks in `content/notebooks_md/`."
-    )
+    st.subheader("📚 Python Lesson Notebooks")
+    st.caption("Click any notebook below to open and read its full lesson content.")
+
     topics = load_topics_manifest()
     if not topics:
         st.info("Add entries to `content/topics.json` and markdown files in `content/`.")
         return
-    for t in topics:
+
+    intro_topics = [t for t in topics if "introduction" in t.get("title", "").lower() or t.get("id", "").startswith("nb-an_")]
+    numbered_topics = [t for t in topics if t not in intro_topics]
+
+    icon_index = 0
+    for t in intro_topics + numbered_topics:
         title = t.get("title") or t.get("id", "Topic")
         fname = t.get("file", "")
-        with st.expander(title, expanded=False):
-            st.markdown(read_topic_file(fname))
+        icon = get_notebook_icon(icon_index)
+        icon_index += 1
+
+        is_intro = "introduction" in title.lower()
+        badge = "Intro" if is_intro else f"Lesson {icon_index - 1}" if icon_index > 2 else ""
+
+        with st.expander(
+            label=f"{icon}  {title}",
+            expanded=False,
+        ):
+            content = read_topic_file(fname)
+            st.markdown(content, unsafe_allow_html=False)
 
 
 def main() -> None:

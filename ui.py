@@ -73,6 +73,39 @@ def inject_css() -> None:
             max-width: 100% !important;
           }
 
+          /* ── Table rendering ── */
+          .stMarkdown table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            display: block !important;
+            overflow-x: auto !important;
+            white-space: normal !important;
+            margin-bottom: 1rem !important;
+          }
+          .stMarkdown table th,
+          .stMarkdown table td {
+            border: 1px solid #b7dfc5 !important;
+            padding: 0.45rem 0.75rem !important;
+            text-align: left !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            white-space: normal !important;
+            min-width: 80px !important;
+            max-width: 320px !important;
+            vertical-align: top !important;
+          }
+          .stMarkdown table th {
+            background: #e4f2e9 !important;
+            font-weight: 700 !important;
+            color: #1b4332 !important;
+          }
+          .stMarkdown table tr:nth-child(even) td {
+            background: #f5faf6 !important;
+          }
+          .stMarkdown table tr:hover td {
+            background: #e8f5ed !important;
+          }
+
           /* ── Notebook topic card ── */
           .nb-card {
             background: linear-gradient(135deg, #f0faf3 0%, #ffffff 100%);

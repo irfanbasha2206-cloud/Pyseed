@@ -18,6 +18,64 @@ CONTENT_DIR = ROOT / "content"
 NOTEBOOKS_MD_DIR = CONTENT_DIR / "notebooks_md"
 
 
+# ── Notebook markdown preprocessor ────────────────────────────────────────────
+
+def preprocess_notebook_md(text: str) -> str:
+    """
+    Jupyter notebooks converted to markdown have Python docstrings ('''...''')
+    inside ```python``` code blocks that contain prose, tables, and explanations.
+    This function extracts those and renders them as proper markdown so Streamlit
+    shows tables as HTML tables, bold text as bold, etc.
+    """
+
+    def process_code_block(m: re.Match) -> str:
+        block = m.group(1)
+
+        # Check if there is any real Python code (not just comments and docstrings)
+        stripped = block
+        stripped = re.sub(r"'''.*?'''", "", stripped, flags=re.DOTALL)
+        stripped = re.sub(r'""".*?"""', "", stripped, flags=re.DOTALL)
+        stripped = re.sub(r"^#[^\n]*\n?", "", stripped, flags=re.MULTILINE)
+        has_real_code = bool(stripped.strip())
+
+        if has_real_code:
+            return m.group(0)  # keep real code blocks as-is
+
+        # No real code — extract and render as markdown
+        result: list[str] = []
+        last_pos = 0
+
+        for dm in re.finditer(r"'''(.*?)'''", block, re.DOTALL):
+            before = block[last_pos : dm.start()]
+            for line in before.splitlines():
+                ln = line.strip()
+                if ln.startswith("#"):
+                    heading = ln.lstrip("#").strip()
+                    if heading:
+                        result.append(f"\n#### {heading}\n\n")
+            content = dm.group(1).strip()
+            if content:
+                result.append(content + "\n\n")
+            last_pos = dm.end()
+
+        after = block[last_pos:]
+        for line in after.splitlines():
+            ln = line.strip()
+            if ln.startswith("#"):
+                heading = ln.lstrip("#").strip()
+                if heading:
+                    result.append(f"\n#### {heading}\n\n")
+
+        return "\n" + "".join(result) + "\n"
+
+    processed = re.sub(r"```python\n?(.*?)```", process_code_block, text, flags=re.DOTALL)
+    processed = re.sub(r"^\s*'''\s*$", "", processed, flags=re.MULTILINE)
+    processed = re.sub(r"\n{4,}", "\n\n\n", processed)
+    return processed
+
+
+# ── Tokenisation & chunks ──────────────────────────────────────────────────────
+
 def tokenize(text: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", text.lower())
 
@@ -28,8 +86,8 @@ class Chunk:
     source: str
 
 
-def _split_markdown_chunks(text: str, source: str, max_chars: int = 1200) -> list[Chunk]:
-    parts = re.split(r"(?m)^#{1,3}\s+.+\s*$", text)
+def _split_markdown_chunks(text: str, source: str, max_chars: int = 1000) -> list[Chunk]:
+    parts = re.split(r"(?m)^#{1,4}\s+.+\s*$", text)
     chunks: list[Chunk] = []
     for part in parts:
         part = part.strip()
@@ -104,7 +162,8 @@ def _iter_markdown_files() -> list[Path]:
 def load_all_chunks() -> tuple[list[Chunk], BM25Okapi | None]:
     chunks: list[Chunk] = []
     for md in _iter_markdown_files():
-        text = md.read_text(encoding="utf-8")
+        raw = md.read_text(encoding="utf-8")
+        text = preprocess_notebook_md(raw)
         chunks.extend(_split_markdown_chunks(text, md.relative_to(CONTENT_DIR).as_posix()))
     if not chunks:
         return [], None
@@ -113,31 +172,58 @@ def load_all_chunks() -> tuple[list[Chunk], BM25Okapi | None]:
     return chunks, bm25
 
 
-def retrieve_context(query: str, k: int = 6) -> str:
+# ── BM25 retrieval with title boost ───────────────────────────────────────────
+
+def _title_boost(query_tokens: set[str], source: str) -> float:
+    """
+    Give a score multiplier to chunks whose notebook title words overlap with the query.
+    e.g. query='variables' → notebook '1_variables_and_datatypes.md' gets a big boost.
+    """
+    stem = Path(source).stem
+    stem_clean = re.sub(r"^\d+[_\-]?", "", stem)
+    title_tokens = set(tokenize(stem_clean))
+    if not title_tokens or not query_tokens:
+        return 1.0
+    overlap = query_tokens & title_tokens
+    if not overlap:
+        return 1.0
+    ratio = len(overlap) / len(title_tokens)
+    if ratio >= 0.5:
+        return 4.0
+    if ratio > 0:
+        return 2.0
+    return 1.0
+
+
+def retrieve_context(query: str, k: int = 5) -> str:
     chunks, bm25 = load_all_chunks()
     if not chunks or bm25 is None:
         return ""
     q = tokenize(query)
     if not q:
         return ""
+    q_set = set(q)
     scores = bm25.get_scores(q)
-    ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
+    boosted = [scores[i] * _title_boost(q_set, chunks[i].source) for i in range(len(chunks))]
+    ranked = sorted(range(len(boosted)), key=lambda i: boosted[i], reverse=True)[:k]
     excerpts = []
     for i in ranked:
         excerpts.append(f"--- From `{chunks[i].source}` ---\n{chunks[i].text}")
     return "\n\n".join(excerpts)
 
 
-def _retrieve_top_chunks(query: str, k: int = 4) -> list[tuple[Chunk, float]]:
+def _retrieve_top_chunks(query: str, k: int = 3) -> list[tuple[Chunk, float]]:
     chunks, bm25 = load_all_chunks()
     if not chunks or bm25 is None:
         return []
     q = tokenize(query)
     if not q:
         return []
+    q_set = set(q)
     scores = bm25.get_scores(q)
-    ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:k]
-    return [(chunks[i], float(scores[i])) for i in ranked]
+    boosted = [scores[i] * _title_boost(q_set, chunks[i].source) for i in range(len(chunks))]
+    ranked = sorted(range(len(boosted)), key=lambda i: boosted[i], reverse=True)[:k]
+    return [(chunks[i], float(boosted[i])) for i in ranked]
 
 
 def _source_label(source: str) -> str:
@@ -154,21 +240,20 @@ def _source_label(source: str) -> str:
 
 
 def _bm25_only_answer(query: str) -> str:
-    """Answer purely from notebook content using BM25. No external API needed."""
+    """Answer purely from notebook content using BM25 + title boost. No external API."""
     results = _retrieve_top_chunks(query, k=3)
     if not results:
         return (
-            "Sorry, I am beginner level AI and I could not find anything in the notebooks. "
-            "Please try browsing the **Static mode** to read the lessons directly."
+            "Sorry, I am beginner level AI — I could not find anything in the notebooks. "
+            "Please try browsing **Static mode** to read the lessons directly."
         )
 
     top_score = results[0][1]
 
     if top_score < 0.5:
         return (
-            "Sorry, I am beginner level AI — I could not find a good answer to that question "
-            "in the lesson notebooks. Try rephrasing with Python keywords, or browse the "
-            "**Static mode** to read the lessons directly."
+            "Sorry, I am beginner level AI — I could not find a good answer to that in the lessons. "
+            "Try rephrasing with Python keywords, or browse **Static mode** to read the lessons."
         )
 
     parts: list[str] = []
@@ -189,17 +274,19 @@ def _bm25_only_answer(query: str) -> str:
 
     if not parts:
         return (
-            "Sorry, I am beginner level AI — I could not find a relevant answer in the notebooks. "
+            "Sorry, I am beginner level AI — no relevant answer found in the notebooks. "
             "Try browsing **Static mode** for the full lessons."
         )
 
     answer = "\n\n---\n\n".join(parts)
     answer += (
-        "\n\n---\n*This answer is taken directly from your lesson notebooks. "
-        "For a deeper explanation, open the topic in **Static mode**.*"
+        "\n\n---\n*Answer from your lesson notebooks. "
+        "For full details, open the topic in **Static mode**.*"
     )
     return answer
 
+
+# ── OpenAI helpers ─────────────────────────────────────────────────────────────
 
 def _normalize_openai_key(raw: str) -> str:
     s = raw.strip().replace("\n", "").replace("\r", "").lstrip("\ufeff")
@@ -258,13 +345,11 @@ def get_openai_key() -> str | None:
                 return s
     except (FileNotFoundError, RuntimeError, AttributeError):
         pass
-
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except ImportError:
         pass
-
     v = _normalize_openai_key(os.environ.get("OPENAI_API_KEY", ""))
     if v and v not in ('""', "sk-your-key-here"):
         return v
@@ -327,11 +412,11 @@ def chat_answer_stream(
     context = retrieve_context(user_message)
     system = (
         "You are **Pyseed**, a friendly beginner Python tutor. "
-        "Answer using the lesson excerpts below as your primary source. "
-        "If the excerpts do not contain enough information to answer the question, "
-        "respond with exactly: 'Sorry I am beginner level AI' and suggest the learner "
-        "browse the relevant topic in Static mode. "
-        "Keep answers concise and use simple examples when helpful.\n\n"
+        "Answer using ONLY the lesson excerpts below as your source. "
+        "Provide clear definitions and short code examples from the excerpts. "
+        "If the excerpts do not contain enough information, respond with: "
+        "'Sorry I am beginner level AI' and suggest browsing Static mode. "
+        "Keep answers concise.\n\n"
         f"### Lesson excerpts\n{context or '(No excerpts retrieved.)'}"
     )
 
@@ -348,11 +433,10 @@ def chat_answer_stream(
 
     auth_help = (
         "**OpenAI rejected the request (401).**\n\n"
-        "Fixes:\n"
         "1. Use an API key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys).\n"
-        "2. Ensure billing is active for that key's organisation.\n"
+        "2. Ensure billing is active.\n"
         "3. In Secrets: `OPENAI_API_KEY = \"sk-proj-...\"` → **Save** → **Reboot**.\n\n"
-        "*Tip: Remove the key entirely to use the free notebook-based mode.*"
+        "*Tip: Remove the key to use free notebook-search mode instead.*"
     )
 
     try:
@@ -360,7 +444,7 @@ def chat_answer_stream(
             model="gpt-4o-mini",
             messages=messages,
             temperature=0.3,
-            max_tokens=900,
+            max_tokens=700,
             stream=True,
         )
         for chunk in stream:
@@ -380,7 +464,7 @@ def chat_answer_stream(
     except RateLimitError:
         yield "**OpenAI rate limit (429)** — wait several minutes and retry."
     except APIConnectionError:
-        yield "**Could not reach OpenAI.** Falling back to notebook search...\n\n" + _bm25_only_answer(user_message)
+        yield "**Could not reach OpenAI.** Falling back...\n\n" + _bm25_only_answer(user_message)
     except Exception as exc:
         yield f"**Unexpected error:** {exc}"
 
@@ -401,4 +485,5 @@ def read_topic_file(filename: str) -> str:
         or content_root not in path.parents
     ):
         return "*Topic file not found.*"
-    return path.read_text(encoding="utf-8")
+    raw = path.read_text(encoding="utf-8")
+    return preprocess_notebook_md(raw)

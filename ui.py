@@ -49,18 +49,24 @@ def inject_css() -> None:
             white-space: normal !important;
             max-width: 100% !important;
           }
-          .stMarkdown pre,
-          .stMarkdown code {
-            white-space: pre-wrap !important;
-            word-break: break-all !important;
+          .stMarkdown pre {
+            white-space: pre !important;
             overflow-x: auto !important;
             max-width: 100% !important;
-          }
-          .stMarkdown pre {
             padding: 0.75rem 1rem !important;
             border-radius: 8px !important;
             background: #f0f4f1 !important;
             border: 1px solid #d4e6da !important;
+            word-break: normal !important;
+          }
+          .stMarkdown pre code {
+            white-space: pre !important;
+            word-break: normal !important;
+          }
+          .stMarkdown code {
+            word-break: break-word !important;
+            overflow-wrap: break-word !important;
+            max-width: 100% !important;
           }
           /* Fix expander content overflow */
           [data-testid="stExpander"] > div > div {

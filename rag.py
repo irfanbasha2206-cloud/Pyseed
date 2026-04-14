@@ -242,9 +242,27 @@ def _source_label(source: str) -> str:
     return re.sub(r"[_-]+", " ", stem).strip().title()
 
 
+def _clean_chunk_text(text: str) -> str:
+    """Strip raw Python docstring markers and tidy whitespace from a chunk."""
+    text = text.strip()
+    # Remove ''' delimiters left over from raw notebook markdown
+    text = re.sub(r"^\s*'''\s*", "", text)
+    text = re.sub(r"\s*'''\s*$", "", text)
+    text = re.sub(r"'''", "", text)
+    # Remove lone '#' comment lines that have no content
+    text = re.sub(r"(?m)^#\s*$", "", text)
+    # Collapse 3+ blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def _bm25_only_answer(query: str) -> str:
-    """Answer purely from notebook content using BM25 + title boost. No external API."""
-    results = _retrieve_top_chunks(query, k=3)
+    """
+    Answer from the single best-matching notebook only.
+    No notebook name label, no cross-notebook pollution.
+    """
+    # Retrieve more candidates so we get several chunks from the top notebook
+    results = _retrieve_top_chunks(query, k=10)
     if not results:
         return (
             "Sorry, I am beginner level AI — I could not find anything in the notebooks. "
@@ -253,7 +271,7 @@ def _bm25_only_answer(query: str) -> str:
 
     top_score = results[0][1]
 
-    # Very low score = the query words don't appear anywhere → likely misspelling
+    # Very low score → likely a misspelling
     if top_score < 0.15:
         return (
             "❗ **Check your word and enter the correct spelling.**\n\n"
@@ -267,20 +285,22 @@ def _bm25_only_answer(query: str) -> str:
             "Try rephrasing with Python keywords, or browse **Static mode** to read the lessons."
         )
 
-    parts: list[str] = []
-    seen_sources: set[str] = set()
+    # Only use chunks from the single top-scoring notebook
+    top_source = results[0][0].source
+    min_score = max(top_score * 0.25, 0.3)
+    top_chunks = [
+        chunk for chunk, score in results
+        if chunk.source == top_source and score >= min_score
+    ]
 
-    for chunk, score in results:
-        if score < 0.3:
-            break
-        label = _source_label(chunk.source)
-        text = chunk.text.strip()
-        if not text:
-            continue
-        if label not in seen_sources:
-            seen_sources.add(label)
-            parts.append(f"**From: {label}**\n\n{text}")
-        else:
+    if not top_chunks:
+        top_chunks = [results[0][0]]
+
+    # Build clean answer — definitions and examples only, no notebook name
+    parts: list[str] = []
+    for chunk in top_chunks:
+        text = _clean_chunk_text(chunk.text)
+        if text:
             parts.append(text)
 
     if not parts:
@@ -289,12 +309,7 @@ def _bm25_only_answer(query: str) -> str:
             "Try browsing **Static mode** for the full lessons."
         )
 
-    answer = "\n\n---\n\n".join(parts)
-    answer += (
-        "\n\n---\n*Answer from your lesson notebooks. "
-        "For full details, open the topic in **Static mode**.*"
-    )
-    return answer
+    return "\n\n".join(parts)
 
 
 # ── OpenAI helpers ─────────────────────────────────────────────────────────────

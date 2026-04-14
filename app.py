@@ -46,7 +46,7 @@ def _dashboard() -> None:
     st.markdown(
         mode_card_html(
             "AI mode",
-            "Quickly ask Python questions from your lesson notebooks.",
+            "Ask your Python Questions and Get Answers Quickly",
             "✨",
         ),
         unsafe_allow_html=True,

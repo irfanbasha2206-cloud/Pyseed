@@ -33,10 +33,10 @@ def inject_css() -> None:
             font-family: 'DM Sans', 'Source Sans Pro', sans-serif !important;
           }
 
-          /* ── Layout ── */
+          /* ── Layout: fill full page width ── */
           .pyseed-wrap {
-            max-width: 900px;
-            margin: 0 auto;
+            width: 100% !important;
+            max-width: 100% !important;
             padding-bottom: 2rem;
           }
 
@@ -49,10 +49,14 @@ def inject_css() -> None:
             white-space: normal !important;
             max-width: 100% !important;
           }
+
+          /* Code blocks: preserve formatting and allow horizontal scroll */
           .stMarkdown pre {
             white-space: pre !important;
             overflow-x: auto !important;
+            width: 100% !important;
             max-width: 100% !important;
+            box-sizing: border-box !important;
             padding: 0.75rem 1rem !important;
             border-radius: 8px !important;
             background: #f0f4f1 !important;
@@ -62,13 +66,18 @@ def inject_css() -> None:
           .stMarkdown pre code {
             white-space: pre !important;
             word-break: normal !important;
+            display: block !important;
           }
           .stMarkdown code {
             word-break: break-word !important;
             overflow-wrap: break-word !important;
             max-width: 100% !important;
           }
-          /* ── Expander header — allow full label to show, no clipping ── */
+
+          /* ── Expander: full-width header with wrapped label ── */
+          [data-testid="stExpander"] {
+            width: 100% !important;
+          }
           [data-testid="stExpander"] summary {
             white-space: normal !important;
             height: auto !important;
@@ -76,6 +85,8 @@ def inject_css() -> None:
             align-items: flex-start !important;
             padding: 0.6rem 0.75rem !important;
             gap: 0.5rem !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
           }
           [data-testid="stExpander"] summary p,
           [data-testid="stExpander"] summary span:not([data-testid]) {
@@ -88,15 +99,30 @@ def inject_css() -> None:
             line-height: 1.45 !important;
             padding-top: 0.15rem !important;
           }
-          /* Fix expander content overflow */
-          [data-testid="stExpander"] > div > div {
-            overflow-wrap: break-word !important;
-            word-break: break-word !important;
+
+          /* Expander content: break the overflow chain at every level */
+          [data-testid="stExpander"] > div,
+          [data-testid="stExpander"] > div > div,
+          [data-testid="stExpanderDetails"],
+          [data-testid="stExpanderDetails"] > div,
+          [data-testid="stExpanderDetails"] > div > div {
             overflow: visible !important;
+            overflow-x: visible !important;
+            max-width: 100% !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
           }
-          [data-testid="stExpanderDetails"] {
+
+          /* Allow the stMarkdown wrapper inside expanders to scroll code blocks */
+          [data-testid="stExpanderDetails"] .stMarkdown {
             overflow: visible !important;
             max-width: 100% !important;
+            width: 100% !important;
+          }
+          [data-testid="stExpanderDetails"] .stMarkdown pre {
+            overflow-x: auto !important;
+            max-width: 100% !important;
+            width: 100% !important;
           }
 
           /* ── Table rendering ── */

@@ -68,6 +68,26 @@ def inject_css() -> None:
             overflow-wrap: break-word !important;
             max-width: 100% !important;
           }
+          /* ── Expander header — allow full label to show, no clipping ── */
+          [data-testid="stExpander"] summary {
+            white-space: normal !important;
+            height: auto !important;
+            min-height: 3rem !important;
+            align-items: flex-start !important;
+            padding: 0.6rem 0.75rem !important;
+            gap: 0.5rem !important;
+          }
+          [data-testid="stExpander"] summary p,
+          [data-testid="stExpander"] summary span:not([data-testid]) {
+            white-space: normal !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            overflow: visible !important;
+            text-overflow: unset !important;
+            font-size: 0.97rem !important;
+            line-height: 1.45 !important;
+            padding-top: 0.15rem !important;
+          }
           /* Fix expander content overflow */
           [data-testid="stExpander"] > div > div {
             overflow-wrap: break-word !important;

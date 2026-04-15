@@ -51,16 +51,28 @@ def _load_dotenv_if_present() -> None:
 
 
 def _is_open_access() -> bool:
-    """Return True when the app should accept any non-empty username and password."""
+    """
+    Return True when the app should accept any non-empty username and password.
+    Defaults to True (open access) so the app works on Streamlit Community Cloud
+    with no secrets required. Set PYSEED_OPEN_ACCESS=0 in secrets to disable.
+    """
+    # Explicit disable via env var
+    if os.environ.get("PYSEED_OPEN_ACCESS", "").strip() == "0":
+        return False
+    # Explicit enable via env var
     if os.environ.get("PYSEED_OPEN_ACCESS", "").strip() == "1":
         return True
     try:
         v = st.secrets.get("PYSEED_OPEN_ACCESS")
-        if str(v).strip() in ("1", "true", "yes"):
-            return True
+        if v is not None:
+            if str(v).strip() in ("0", "false", "no"):
+                return False
+            if str(v).strip() in ("1", "true", "yes"):
+                return True
     except (FileNotFoundError, RuntimeError, AttributeError, KeyError, TypeError):
         pass
-    return False
+    # Default: open access — no secrets needed
+    return True
 
 
 def verify_user(username: str, password: str) -> tuple[bool, str | None]:

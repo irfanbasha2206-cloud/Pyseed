@@ -117,8 +117,8 @@ def render_login() -> bool:
         return True
 
     if _is_open_access():
-        u = st.text_input("Username", key="login_u", placeholder="Enter any username")
-        p = st.text_input("Password", type="password", key="login_p", placeholder="Enter any password")
+        u = st.text_input("Username", key="login_u", placeholder="Enter your username")
+        p = st.text_input("Email ID", key="login_p", placeholder="Enter your email address")
         if st.button("Sign in", type="primary", use_container_width=True):
             if u.strip():
                 st.session_state.authenticated = True
@@ -137,8 +137,8 @@ def render_login() -> bool:
                 "Development mode: no `auth_users` in secrets. "
                 "Using demo/demo — not for production."
             )
-            u = st.text_input("Username", key="login_u")
-            p = st.text_input("Password", type="password", key="login_p")
+            u = st.text_input("Username", key="login_u", placeholder="Enter your username")
+            p = st.text_input("Email ID", key="login_p", placeholder="Enter your email address")
             if st.button("Sign in", type="primary", use_container_width=True):
                 if u == "demo" and p == "demo":
                     st.session_state.authenticated = True
@@ -170,8 +170,8 @@ def render_login() -> bool:
         )
         return False
 
-    u = st.text_input("Username", key="login_u")
-    p = st.text_input("Password", type="password", key="login_p")
+    u = st.text_input("Username", key="login_u", placeholder="Enter your username")
+    p = st.text_input("Email ID", key="login_p", placeholder="Enter your email address")
     if st.button("Sign in", type="primary", use_container_width=True):
         ok, name = verify_user(u.strip(), p)
         if ok and name:

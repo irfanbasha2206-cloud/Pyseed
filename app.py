@@ -102,7 +102,7 @@ def _ai_view() -> None:
             st.markdown(
                 "👋 Hi! I'm **Pyseed**, your beginner Python tutor.\n\n"
                 "Ask me anything about Python — variables, loops, functions, OOP and more. "
-                "I'll answer from your lesson notebooks!"
+                "I'll answer exactly from your lesson notebooks!"
             )
 
     for m in st.session_state.messages:

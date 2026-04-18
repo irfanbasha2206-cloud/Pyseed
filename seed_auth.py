@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 import bcrypt
 import streamlit as st
+
+
+USER_DB_PATH = Path(__file__).resolve().parent / "user_db.json"
 
 
 def _normalize_user_table(raw: Any) -> dict[str, Any]:
@@ -40,6 +45,64 @@ def _get_auth_users() -> dict[str, Any]:
             users["demo"] = {"name": str(name), "password_hash": str(h)}
 
     return users
+
+
+def _default_user_db() -> dict[str, Any]:
+    return {"users": {}, "remembered": {}}
+
+
+def _load_user_db() -> dict[str, Any]:
+    if not USER_DB_PATH.is_file():
+        return _default_user_db()
+    try:
+        with USER_DB_PATH.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, dict):
+            return _default_user_db()
+        users = data.get("users") if isinstance(data.get("users"), dict) else {}
+        remembered = data.get("remembered") if isinstance(data.get("remembered"), dict) else {}
+        return {"users": users, "remembered": remembered}
+    except Exception:
+        return _default_user_db()
+
+
+def _save_user_db(db: dict[str, Any]) -> None:
+    try:
+        USER_DB_PATH.write_text(json.dumps(db, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _remember_user(username: str, email: str) -> None:
+    db = _load_user_db()
+    username_key = username.strip().lower()
+    email_value = email.strip()
+    if username_key:
+        db["users"][username_key] = email_value
+        db["remembered"] = {
+            "username": username_key,
+            "email": email_value,
+            "name": username.strip(),
+        }
+        _save_user_db(db)
+
+
+def _load_remembered_user() -> dict[str, str] | None:
+    db = _load_user_db()
+    remembered = db.get("remembered", {})
+    if not isinstance(remembered, dict):
+        return None
+    username = str(remembered.get("username", "")).strip()
+    email = str(remembered.get("email", "")).strip()
+    if username and email:
+        return {"username": username, "email": email, "name": str(remembered.get("name", username))}
+    return None
+
+
+def _clear_remembered_user() -> None:
+    db = _load_user_db()
+    db["remembered"] = {}
+    _save_user_db(db)
 
 
 def _load_dotenv_if_present() -> None:
@@ -116,17 +179,27 @@ def render_login() -> bool:
     if st.session_state.authenticated:
         return True
 
+    remembered = _load_remembered_user()
+    if remembered is not None:
+        st.session_state.authenticated = True
+        st.session_state.display_name = remembered["name"]
+        st.session_state.username = remembered["username"]
+        return True
+
     if _is_open_access():
-        u = st.text_input("Username", key="login_u", placeholder="Enter your username")
+        u = st.text_input("Username", key="login_u", placeholder="Enter Your Name")
         p = st.text_input("Email ID", key="login_p", placeholder="Enter your email address")
         if st.button("Sign in", type="primary", use_container_width=True):
-            if u.strip():
+            if not u.strip():
+                st.error("Please enter your name.")
+            elif not p.strip():
+                st.error("Please enter your email address.")
+            else:
                 st.session_state.authenticated = True
                 st.session_state.display_name = u.strip()
                 st.session_state.username = u.strip().lower()
+                _remember_user(u, p)
                 st.rerun()
-            else:
-                st.error("Please enter a username.")
         return False
 
     users = _get_auth_users()
@@ -137,7 +210,7 @@ def render_login() -> bool:
                 "Development mode: no `auth_users` in secrets. "
                 "Using demo/demo — not for production."
             )
-            u = st.text_input("Username", key="login_u", placeholder="Enter your username")
+            u = st.text_input("Username", key="login_u", placeholder="Enter Your Name")
             p = st.text_input("Email ID", key="login_p", placeholder="Enter your email address")
             if st.button("Sign in", type="primary", use_container_width=True):
                 if u == "demo" and p == "demo":
@@ -170,17 +243,23 @@ def render_login() -> bool:
         )
         return False
 
-    u = st.text_input("Username", key="login_u", placeholder="Enter your username")
+    u = st.text_input("Username", key="login_u", placeholder="Enter Your Name")
     p = st.text_input("Email ID", key="login_p", placeholder="Enter your email address")
     if st.button("Sign in", type="primary", use_container_width=True):
-        ok, name = verify_user(u.strip(), p)
-        if ok and name:
-            st.session_state.authenticated = True
-            st.session_state.display_name = name
-            st.session_state.username = u.strip()
-            st.rerun()
+        if not u.strip():
+            st.error("Please enter your name.")
+        elif not p.strip():
+            st.error("Please enter your email address.")
         else:
-            st.error("Invalid username or password.")
+            ok, name = verify_user(u.strip(), p)
+            if ok and name:
+                st.session_state.authenticated = True
+                st.session_state.display_name = name
+                st.session_state.username = u.strip()
+                _remember_user(u, p)
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
     return False
 
 
@@ -189,6 +268,7 @@ def logout() -> None:
     st.session_state.display_name = None
     st.session_state.username = None
     st.session_state.view = "dashboard"
+    _clear_remembered_user()
     for k in ("messages",):
         if k in st.session_state:
             del st.session_state[k]

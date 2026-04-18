@@ -48,7 +48,7 @@ def _get_auth_users() -> dict[str, Any]:
 
 
 def _default_user_db() -> dict[str, Any]:
-    return {"users": {}, "remembered": {}}
+    return {"users": {}}
 
 
 def _load_user_db() -> dict[str, Any]:
@@ -60,8 +60,7 @@ def _load_user_db() -> dict[str, Any]:
         if not isinstance(data, dict):
             return _default_user_db()
         users = data.get("users") if isinstance(data.get("users"), dict) else {}
-        remembered = data.get("remembered") if isinstance(data.get("remembered"), dict) else {}
-        return {"users": users, "remembered": remembered}
+        return {"users": users}
     except Exception:
         return _default_user_db()
 
@@ -79,30 +78,17 @@ def _remember_user(username: str, email: str) -> None:
     email_value = email.strip()
     if username_key:
         db["users"][username_key] = email_value
-        db["remembered"] = {
-            "username": username_key,
-            "email": email_value,
-            "name": username.strip(),
-        }
         _save_user_db(db)
 
 
 def _load_remembered_user() -> dict[str, str] | None:
-    db = _load_user_db()
-    remembered = db.get("remembered", {})
-    if not isinstance(remembered, dict):
-        return None
-    username = str(remembered.get("username", "")).strip()
-    email = str(remembered.get("email", "")).strip()
-    if username and email:
-        return {"username": username, "email": email, "name": str(remembered.get("name", username))}
+    # Removed auto-login to prevent conflicts between users
     return None
 
 
 def _clear_remembered_user() -> None:
-    db = _load_user_db()
-    db["remembered"] = {}
-    _save_user_db(db)
+    # No longer needed without remembered user
+    pass
 
 
 def _load_dotenv_if_present() -> None:
@@ -179,12 +165,7 @@ def render_login() -> bool:
     if st.session_state.authenticated:
         return True
 
-    remembered = _load_remembered_user()
-    if remembered is not None:
-        st.session_state.authenticated = True
-        st.session_state.display_name = remembered["name"]
-        st.session_state.username = remembered["username"]
-        return True
+    # Removed auto-login to allow each user to login independently
 
     if _is_open_access():
         u = st.text_input("Username", key="login_u", placeholder="Enter Your Name")

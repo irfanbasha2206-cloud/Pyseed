@@ -114,7 +114,7 @@ def ensure_session_keys() -> None:
 
 
 def _restore_login_from_query_params() -> bool:
-    query = st.experimental_get_query_params()
+    query = st.query_params
     username = str(query.get("pyseed_user", [""])[0]).strip()
     email = str(query.get("pyseed_email", [""])[0]).strip()
     if not username or not email:
@@ -124,7 +124,7 @@ def _restore_login_from_query_params() -> bool:
     st.session_state.display_name = username
     st.session_state.username = username.lower()
     st.session_state.user_email = email
-    st.experimental_set_query_params()
+    st.query_params.clear()
     st.rerun()
     return True
 

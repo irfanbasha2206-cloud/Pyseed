@@ -41,12 +41,15 @@ def _page_icon() -> str:
 
 
 def _dashboard() -> None:
-    st.subheader("Welcome")
-    st.caption(f"Signed in as **{st.session_state.display_name}** — pick a mode below.")
+    user = st.session_state.display_name or "Learner"
+    st.subheader(f"Welcome back, {user}!")
+    st.caption(
+        f"Signed in as **{user}** — explore global Python lessons, review definitions, or ask the AI for exact answers."
+    )
     st.markdown(
         mode_card_html(
             "AI mode",
-            "Ask your Python Questions and Get Answers Quickly",
+            "Ask your Python questions and get clear definition-based answers from the notebook lessons.",
             "✨",
         ),
         unsafe_allow_html=True,
@@ -54,7 +57,7 @@ def _dashboard() -> None:
     st.markdown(
         mode_card_html(
             "Static mode",
-            "Great for reading lessons step by step.",
+            "Read structured lessons and follow Python examples step by step.",
             "📚",
         ),
         unsafe_allow_html=True,
@@ -101,8 +104,8 @@ def _ai_view() -> None:
         with st.chat_message("assistant"):
             st.markdown(
                 "👋 Hi! I'm **Pyseed**, your beginner Python tutor.\n\n"
-                "Ask me anything about Python — variables, loops, functions, OOP and more. "
-                "I'll answer exactly from your lesson notebooks!"
+                "Ask me anything about Python — variables, loops, functions, OOP, and definitions. "
+                "I will answer using your lesson notebooks with clear, exact definitions and short examples."
             )
 
     for m in st.session_state.messages:

@@ -133,33 +133,33 @@ def _browser_login_component(clear: bool = False) -> None:
     user = str(st.session_state.username or "") if st.session_state.authenticated else ""
     email = str(st.session_state.user_email or "") if st.session_state.authenticated else ""
     clear_flag = "1" if clear else "0"
-    html = f"""
-    <div id="pyseed_login_sync" data-user="{user}" data-email="{email}" data-clear="{clear_flag}"></div>
-    <script>
-      const el = document.getElementById("pyseed_login_sync");
-      const user = el.dataset.user;
-      const email = el.dataset.email;
-      const clear = el.dataset.clear;
-      if (clear === "1") {
-        window.localStorage.removeItem("pyseed_user");
-        window.localStorage.removeItem("pyseed_email");
-      } else if (user && email) {
-        window.localStorage.setItem("pyseed_user", user);
-        window.localStorage.setItem("pyseed_email", email);
-      }
-
-      const params = new URLSearchParams(window.location.search);
-      if (!params.has("pyseed_user")) {
-        const storedUser = window.localStorage.getItem("pyseed_user");
-        const storedEmail = window.localStorage.getItem("pyseed_email");
-        if (storedUser && storedEmail) {
-          params.set("pyseed_user", storedUser);
-          params.set("pyseed_email", storedEmail);
-          window.location.replace(window.location.pathname + "?" + params.toString());
-        }
-      }
-    </script>
-    """
+    html = (
+        '<div id="pyseed_login_sync" data-user="' + user + '" data-email="' + email + '" data-clear="' + clear_flag + '"></div>'
+        '<script>'
+        '  const el = document.getElementById("pyseed_login_sync");'
+        '  const user = el.dataset.user;'
+        '  const email = el.dataset.email;'
+        '  const clear = el.dataset.clear;'
+        '  if (clear === "1") {'
+        '    window.localStorage.removeItem("pyseed_user");'
+        '    window.localStorage.removeItem("pyseed_email");'
+        '  } else if (user && email) {'
+        '    window.localStorage.setItem("pyseed_user", user);'
+        '    window.localStorage.setItem("pyseed_email", email);'
+        '  }'
+        ''
+        '  const params = new URLSearchParams(window.location.search);'
+        '  if (!params.has("pyseed_user")) {'
+        '    const storedUser = window.localStorage.getItem("pyseed_user");'
+        '    const storedEmail = window.localStorage.getItem("pyseed_email");'
+        '    if (storedUser && storedEmail) {'
+        '      params.set("pyseed_user", storedUser);'
+        '      params.set("pyseed_email", storedEmail);'
+        '      window.location.replace(window.location.pathname + "?" + params.toString());'
+        '    }'
+        '  }'
+        '</script>'
+    )
     components.html(html, height=0)
 
 

@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
 from typing import Any
 
 import bcrypt
 import streamlit as st
-
-
-USER_DB_PATH = Path(__file__).resolve().parent / "user_db.json"
+import streamlit.components.v1 as components
 
 
 def _normalize_user_table(raw: Any) -> dict[str, Any]:
@@ -45,50 +41,6 @@ def _get_auth_users() -> dict[str, Any]:
             users["demo"] = {"name": str(name), "password_hash": str(h)}
 
     return users
-
-
-def _default_user_db() -> dict[str, Any]:
-    return {"users": {}}
-
-
-def _load_user_db() -> dict[str, Any]:
-    if not USER_DB_PATH.is_file():
-        return _default_user_db()
-    try:
-        with USER_DB_PATH.open("r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if not isinstance(data, dict):
-            return _default_user_db()
-        users = data.get("users") if isinstance(data.get("users"), dict) else {}
-        return {"users": users}
-    except Exception:
-        return _default_user_db()
-
-
-def _save_user_db(db: dict[str, Any]) -> None:
-    try:
-        USER_DB_PATH.write_text(json.dumps(db, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
-
-def _remember_user(username: str, email: str) -> None:
-    db = _load_user_db()
-    username_key = username.strip().lower()
-    email_value = email.strip()
-    if username_key:
-        db["users"][username_key] = email_value
-        _save_user_db(db)
-
-
-def _load_remembered_user() -> dict[str, str] | None:
-    # Removed auto-login to prevent conflicts between users
-    return None
-
-
-def _clear_remembered_user() -> None:
-    # No longer needed without remembered user
-    pass
 
 
 def _load_dotenv_if_present() -> None:
@@ -153,8 +105,62 @@ def ensure_session_keys() -> None:
         st.session_state.display_name = None
     if "username" not in st.session_state:
         st.session_state.username = None
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
     if "view" not in st.session_state:
         st.session_state.view = "dashboard"
+    if "clear_local_login" not in st.session_state:
+        st.session_state.clear_local_login = False
+
+
+def _restore_login_from_query_params() -> bool:
+    query = st.experimental_get_query_params()
+    username = str(query.get("pyseed_user", [""])[0]).strip()
+    email = str(query.get("pyseed_email", [""])[0]).strip()
+    if not username or not email:
+        return False
+
+    st.session_state.authenticated = True
+    st.session_state.display_name = username
+    st.session_state.username = username.lower()
+    st.session_state.user_email = email
+    st.experimental_set_query_params()
+    st.rerun()
+    return True
+
+
+def _browser_login_component(clear: bool = False) -> None:
+    user = str(st.session_state.username or "") if st.session_state.authenticated else ""
+    email = str(st.session_state.user_email or "") if st.session_state.authenticated else ""
+    clear_flag = "1" if clear else "0"
+    html = f"""
+    <div id="pyseed_login_sync" data-user="{user}" data-email="{email}" data-clear="{clear_flag}"></div>
+    <script>
+      const el = document.getElementById("pyseed_login_sync");
+      const user = el.dataset.user;
+      const email = el.dataset.email;
+      const clear = el.dataset.clear;
+      if (clear === "1") {
+        window.localStorage.removeItem("pyseed_user");
+        window.localStorage.removeItem("pyseed_email");
+      } else if (user && email) {
+        window.localStorage.setItem("pyseed_user", user);
+        window.localStorage.setItem("pyseed_email", email);
+      }
+
+      const params = new URLSearchParams(window.location.search);
+      if (!params.has("pyseed_user")) {
+        const storedUser = window.localStorage.getItem("pyseed_user");
+        const storedEmail = window.localStorage.getItem("pyseed_email");
+        if (storedUser && storedEmail) {
+          params.set("pyseed_user", storedUser);
+          params.set("pyseed_email", storedEmail);
+          window.location.replace(window.location.pathname + "?" + params.toString());
+        }
+      }
+    </script>
+    """
+    components.html(html, height=0)
 
 
 def render_login() -> bool:
@@ -162,10 +168,17 @@ def render_login() -> bool:
     _load_dotenv_if_present()
     ensure_session_keys()
 
-    if st.session_state.authenticated:
+    if _restore_login_from_query_params():
         return True
 
-    # Removed auto-login to allow each user to login independently
+    if st.session_state.clear_local_login:
+        _browser_login_component(clear=True)
+        st.session_state.clear_local_login = False
+    else:
+        _browser_login_component()
+
+    if st.session_state.authenticated:
+        return True
 
     if _is_open_access():
         u = st.text_input("Username", key="login_u", placeholder="Enter Your Name")
@@ -179,7 +192,7 @@ def render_login() -> bool:
                 st.session_state.authenticated = True
                 st.session_state.display_name = u.strip()
                 st.session_state.username = u.strip().lower()
-                _remember_user(u, p)
+                st.session_state.user_email = p.strip()
                 st.rerun()
         return False
 
@@ -198,6 +211,7 @@ def render_login() -> bool:
                     st.session_state.authenticated = True
                     st.session_state.display_name = "Demo Learner"
                     st.session_state.username = "demo"
+                    st.session_state.user_email = p.strip()
                     st.rerun()
                 else:
                     st.error("Invalid username or password.")
@@ -236,8 +250,8 @@ def render_login() -> bool:
             if ok and name:
                 st.session_state.authenticated = True
                 st.session_state.display_name = name
-                st.session_state.username = u.strip()
-                _remember_user(u, p)
+                st.session_state.username = u.strip().lower()
+                st.session_state.user_email = p.strip()
                 st.rerun()
             else:
                 st.error("Invalid username or password.")
@@ -248,8 +262,9 @@ def logout() -> None:
     st.session_state.authenticated = False
     st.session_state.display_name = None
     st.session_state.username = None
+    st.session_state.user_email = None
     st.session_state.view = "dashboard"
-    _clear_remembered_user()
+    st.session_state.clear_local_login = True
     for k in ("messages",):
         if k in st.session_state:
             del st.session_state[k]

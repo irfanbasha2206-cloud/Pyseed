@@ -14,7 +14,7 @@ if _root not in sys.path:
 
 import streamlit as st
 
-from seed_auth import ensure_session_keys, logout, render_login
+from seed_auth import ensure_session_keys, logout, render_login, _browser_login_component
 from rag import (
     chat_answer_stream,
     get_openai_key,
@@ -171,6 +171,10 @@ def main() -> None:
             st.markdown("</div>", unsafe_allow_html=True)
             st.stop()
         st.markdown("</div>", unsafe_allow_html=True)
+
+    # Keep browser storage updated for the logged-in user so refresh/connection issues
+    # do not force a manual relogin until the user logs out.
+    _browser_login_component()
 
     st.markdown('<div class="pyseed-wrap">', unsafe_allow_html=True)
     render_app_header()
